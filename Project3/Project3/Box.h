@@ -23,16 +23,13 @@ public:
 	Box();
 	~Box();
 
-	glm::mat4 toWorld;
-
 	void draw(GLuint, GLuint);
 	void update();
-	//void spin(float);
 	GLuint loadBoxTexture(std::vector<unsigned char *>, int, int);
 
 	// These variables are needed for the shader program
 	GLuint VBO, VAO, EBO;
-	GLuint uProjection, uModelview;
+
 };
 
 // Define the coordinates and indices needed to draw the Box. Note that it is not necessary

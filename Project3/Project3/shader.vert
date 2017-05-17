@@ -9,11 +9,11 @@ uniform mat4 modelview;
 uniform mat4 transform;
 
 //Output data
-out vec3 texCoords;
+//out vec3 texCoords;
 
 void main()
 {
     // OpenGL maintains the D matrix so you only need to multiply by P, V (aka C inverse), and M
-	texCoords = normalize (position.xyz);
+	//texCoords = normalize (position.xyz);
 	gl_Position = projection * (modelview * transform) * vec4(position.x, position.y, position.z, 1.0);
 }

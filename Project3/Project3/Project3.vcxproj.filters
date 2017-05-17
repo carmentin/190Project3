@@ -24,18 +24,15 @@
     <ClCompile Include="shader.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="Quad.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="shader.frag">
       <Filter>Source Files</Filter>
     </None>
     <None Include="shader.vert">
-      <Filter>Source Files</Filter>
-    </None>
-    <None Include="skyshader.frag">
-      <Filter>Source Files</Filter>
-    </None>
-    <None Include="skyshader.vert">
       <Filter>Source Files</Filter>
     </None>
     <None Include="packages.config" />
@@ -51,6 +48,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="shader.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Quad.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

@@ -26,6 +26,7 @@ limitations under the License.
 
 #include "shader.h"
 #include "Box.h"
+#include "Quad.h"
 
 #define __STDC_FORMAT_MACROS 1
 
@@ -631,9 +632,8 @@ protected:
 		ovrInputState inputState;
 		if (OVR_SUCCESS(ovr_GetInputState(_session, ovrControllerType_Touch, &inputState)))
 		{
-			
-
-			// On A press, change viewing mode			
+			/*
+			On A press, change viewing mode			
 			if (inputState.Buttons & ovrButton_A && !A_down) {
 				A_down = true;
 				viewSelector = (viewSelector + 1)%4;	
@@ -678,6 +678,7 @@ protected:
 				_viewScaleDesc.HmdToEyeOffset[ovrEye_Left].x = originalIODL;
 				_viewScaleDesc.HmdToEyeOffset[ovrEye_Right].x = originalIODR;
 			}
+			*/
 		}
 	}
 
@@ -734,7 +735,7 @@ unsigned char* loadPPM(const char* filename, int& width, int& height)
 
 	// Read image data:
 	rawData = new unsigned char[width * height * 3];
-	read = fread(rawData, width * height * 3, 1, fp);
+	read = (unsigned int) fread(rawData, width * height * 3, 1, fp);
 	fclose(fp);
 	if (read != 1)
 	{
@@ -816,14 +817,19 @@ struct ColorCubeScene {
 
 	Box * skybox;
 
+	Quad * square;
+
 	// VBOs for the cube's vertices and normals
 	//const unsigned int GRID_SIZE{ 5 };
 
 public:
 	ColorCubeScene() : cube({ "Position", "Normal" }, oglplus::shapes::Cube()) {
 		shaderProg = LoadShaders("shader.vert", "shader.frag");
-		box = new Box();
+		square = new Quad();
+
+		/*box = new Box();
 		skybox = new Box();
+		
 
 		//Acquire the width, height, and data
 
@@ -850,22 +856,27 @@ public:
 		skyboxDataVec2.push_back(loadPPM("../Project3-Assets/right-ppm/pz.ppm", imgWidth, imgHeight));
 		skyboxDataVec2.push_back(loadPPM("../Project3-Assets/right-ppm/nz.ppm", imgWidth, imgHeight));
 		texture_skybox[1] = skybox->loadBoxTexture(skyboxDataVec2, imgWidth, imgWidth);
+		*/
 	}
 
 	void render(const mat4 & projection, const mat4 & modelview, ovrSession session, ovrEyeType eye, int displayMode) {
 
-		resizeBox(session);
+		//resizeBox(session);
 
 		glUseProgram(shaderProg);
-		
+
 		//Draw Skybox	
 		GLuint uProjection = glGetUniformLocation(shaderProg, "projection");
 		GLuint uModelview = glGetUniformLocation(shaderProg, "modelview");
 		GLuint uTransform = glGetUniformLocation(shaderProg, "transform");
+		glm::mat4 transform;
 		glUniformMatrix4fv(uProjection, 1, GL_FALSE, (&projection[0][0]));
 		glUniformMatrix4fv(uModelview, 1, GL_FALSE, &(modelview[0][0]));
+		glUniformMatrix4fv(uTransform, 1, GL_FALSE, &(transform[0][0]));
 
-		if (displayMode != 0) {
+		square->draw(shaderProg);
+
+		/*if (displayMode != 0) {
 			glDepthMask(GL_FALSE);
 			glm::mat4 skyboxTransform = glm::scale(glm::mat4(1.0f), glm::vec3(20.0f));
 			glUniformMatrix4fv(uTransform, 1, GL_FALSE, &(skyboxTransform[0][0]));
@@ -879,10 +890,12 @@ public:
 			boxtransform = glm::scale(boxtransform, glm::vec3(boxScale));
 			glUniformMatrix4fv(uTransform, 1, GL_FALSE, &(boxtransform[0][0]));
 			box->draw(shaderProg, texture_box);
-		}
+		}*/
+
+
 	}
 
-	void resizeBox(ovrSession session) {
+	/*void resizeBox(ovrSession session) {
 		ovrInputState inputState;
 		if (OVR_SUCCESS(ovr_GetInputState(session, ovrControllerType_Touch, &inputState)))
 		{
@@ -898,7 +911,7 @@ public:
 				boxScale = 0.2f;
 			}
 		}
-	}
+	}*/
 };
 
 
@@ -913,7 +926,7 @@ public:
 protected:
 	void initGl() override {
 		RiftApp::initGl();
-		glClearColor(0, 0, 0, 0);
+		glClearColor(0, 1, 0, 0);
 		glEnable(GL_DEPTH_TEST);
 		ovr_RecenterTrackingOrigin(_session);
 		cubeScene = std::shared_ptr<ColorCubeScene>(new ColorCubeScene());
