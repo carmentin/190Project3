@@ -1,0 +1,7 @@
+﻿  shader.cpp
+  main.cpp
+c:\users\carmen\desktop\project3\project3\main.cpp(737): warning C4267: '=': conversion from 'size_t' to 'unsigned int', possible loss of data
+  Box.cpp
+  Generating Code...
+  Project3.vcxproj -> C:\Users\Carmen\Desktop\Project3\x64\Debug\Project3.exe
+  Project3.vcxproj -> C:\Users\Carmen\Desktop\Project3\x64\Debug\Project3.pdb (Partial PDB)
