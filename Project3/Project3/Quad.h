@@ -24,14 +24,20 @@ public:
 	Quad();
 	~Quad();
 
-	void draw(GLuint shaderprogram);
+	void draw(GLuint shaderprogram, GLuint texture);
+	GLuint loadQuadTexture(unsigned char* data, int width, int height);
 
 	GLuint VBO, VAO, EBO;
 };
 
-const GLfloat quad_vertices[6][3] = {
-	{-1.0f, -1.0f, 0.0f}, {	1.0f, -1.0f, 0.0f}, {-1.0f,  1.0f, 0.0f},
-	{-1.0f,  1.0f, 0.0f}, { 1.0f, -1.0f, 0.0f}, {1.0f,  1.0f, 0.0f} 
+const GLfloat quad_vertices[] = {
+	-1.0f, -1.0f, 0.0f,		0.f, 0.f,
+	 1.0f, -1.0f, 0.0f,		1.f, 0.f,
+	-1.0f,  1.0f, 0.0f,		0.f, 1.f,
+	-1.0f,  1.0f, 0.0f,		0.f, 1.f,
+	 1.0f, -1.0f, 0.0f,		1.f, 0.f,
+	 1.0f,  1.0f, 0.0f,		1.f, 1.f
+	//{0.0f, 0.0f, 0.0f}, {1.0f, 0.0f, 0.0f}, {1.0f, }
 };
 
 #endif

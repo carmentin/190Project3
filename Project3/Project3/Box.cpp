@@ -51,6 +51,13 @@ void Box::draw(GLuint shaderProgram, GLuint boxtexture)
 	// Tell OpenGL to draw with triangles, using 36 indices, the type of the indices, and the offset to start from
 	glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, 0);
 	// Unbind the VAO when we're done so we don't accidentally draw extra stuff or tamper with its bound buffers
+	glBindTexture(GL_TEXTURE_CUBE_MAP, 0);
+	glBindVertexArray(0);
+}
+
+void Box::draw(GLuint shaderProgram) {
+	glBindVertexArray(this->VAO);
+	glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, 0);
 	glBindVertexArray(0);
 }
 

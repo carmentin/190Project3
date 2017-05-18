@@ -24,6 +24,7 @@ public:
 	~Box();
 
 	void draw(GLuint, GLuint);
+	void draw(GLuint);
 	void update();
 	GLuint loadBoxTexture(std::vector<unsigned char *>, int, int);
 

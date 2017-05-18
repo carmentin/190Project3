@@ -130,6 +130,8 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
+    <None Include="screenShader.frag" />
+    <None Include="screenShader.vert" />
     <None Include="shader.frag" />
     <None Include="shader.vert" />
   </ItemGroup>

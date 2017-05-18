@@ -592,26 +592,16 @@ protected:
 		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, _fbo);
 		glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, curTexId, 0);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+
 		ovr::for_each_eye([&](ovrEyeType eye) {
 			
 			const auto& vp = _sceneLayer.Viewport[eye];
 			glViewport(vp.Pos.x, vp.Pos.y, vp.Size.w, vp.Size.h);
 			_sceneLayer.RenderPose[eye] = eyePoses[eye];
-			
-			switch (viewSelector) {
-			case 0:		//Stereo
-				renderScene(_eyeProjections[eye], ovr::toGlm(lastPoses[eye]), eye, displaySelector);
-				break;
-			case 1:		//Mono
-				renderScene(_eyeProjections[eye], ovr::toGlm(lastPoses[ovrEye_Left]), ovrEye_Left, displaySelector);
-				break;
-			case 2:		//Left only
-				if (eye == ovrEye_Left) renderScene(_eyeProjections[eye], ovr::toGlm(lastPoses[eye]), ovrEye_Left, displaySelector);
-				break;
-			default:	//Right only
-				if (eye == ovrEye_Right) renderScene(_eyeProjections[eye], ovr::toGlm(lastPoses[eye]), ovrEye_Right, displaySelector);
-			}
 
+			renderScene(_eyeProjections[eye], ovr::toGlm(lastPoses[eye]), eye, displaySelector, _fbo, _sceneLayer, windowSize);
+			
 		});
 		glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, 0, 0);
 		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
@@ -632,8 +622,8 @@ protected:
 		ovrInputState inputState;
 		if (OVR_SUCCESS(ovr_GetInputState(_session, ovrControllerType_Touch, &inputState)))
 		{
-			/*
-			On A press, change viewing mode			
+			
+			//On A press, change viewing mode			
 			if (inputState.Buttons & ovrButton_A && !A_down) {
 				A_down = true;
 				viewSelector = (viewSelector + 1)%4;	
@@ -678,11 +668,11 @@ protected:
 				_viewScaleDesc.HmdToEyeOffset[ovrEye_Left].x = originalIODL;
 				_viewScaleDesc.HmdToEyeOffset[ovrEye_Right].x = originalIODR;
 			}
-			*/
+
 		}
 	}
 
-	virtual void renderScene(const glm::mat4 & projection, const glm::mat4 & headPose, ovrEyeType eye, int displayMode) = 0;
+	virtual void renderScene(const glm::mat4 & projection, const glm::mat4 & headPose, ovrEyeType eye, int displayMode, GLuint hmd_fbo, ovrLayerEyeFov _sceneLayer, uvec2 windowSize) = 0;
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////
@@ -805,6 +795,7 @@ struct ColorCubeScene {
 	oglplus::Buffer instances;
 
 	GLuint shaderProg;
+	GLuint screenShaderProg;
 	GLuint texture_box;
 	GLuint texture_skybox[2];
 	
@@ -814,10 +805,21 @@ struct ColorCubeScene {
 
 	Box * box;
 	float boxScale = 0.2f;
-
 	Box * skybox;
 
-	Quad * square;
+	Box * x;
+	Box * y;
+	Box * z;
+
+	Quad * leftwall;
+	GLuint leftTextures[2];
+	Quad * rightwall;
+	GLuint rightTextures[2];
+	Quad * floor;
+	GLuint floorTextures[2];
+
+	GLuint fbo;
+	GLuint renderedTexture;
 
 	// VBOs for the cube's vertices and normals
 	//const unsigned int GRID_SIZE{ 5 };
@@ -825,9 +827,16 @@ struct ColorCubeScene {
 public:
 	ColorCubeScene() : cube({ "Position", "Normal" }, oglplus::shapes::Cube()) {
 		shaderProg = LoadShaders("shader.vert", "shader.frag");
-		square = new Quad();
+		screenShaderProg = LoadShaders("screenShader.vert", "screenShader.frag");
+		leftwall = new Quad();
+		rightwall = new Quad();
+		floor = new Quad();
 
-		/*box = new Box();
+		x = new Box();
+		y = new Box();
+		z = new Box();
+
+		box = new Box();
 		skybox = new Box();
 		
 
@@ -856,46 +865,175 @@ public:
 		skyboxDataVec2.push_back(loadPPM("../Project3-Assets/right-ppm/pz.ppm", imgWidth, imgHeight));
 		skyboxDataVec2.push_back(loadPPM("../Project3-Assets/right-ppm/nz.ppm", imgWidth, imgHeight));
 		texture_skybox[1] = skybox->loadBoxTexture(skyboxDataVec2, imgWidth, imgWidth);
-		*/
+		
+
+		unsigned char* data = loadPPM("../Project3-Assets/left-ppm/nx.ppm", imgWidth, imgHeight);
+		leftTextures[0] = leftwall->loadQuadTexture(data, imgWidth, imgHeight);
+		data = loadPPM("../Project3-Assets/right-ppm/nx.ppm", imgWidth, imgHeight);
+		leftTextures[1] = leftwall->loadQuadTexture(data, imgWidth, imgHeight);
+
+		data = loadPPM("../Project3-Assets/left-ppm/pz.ppm", imgWidth, imgHeight);
+		rightTextures[0] = rightwall->loadQuadTexture(data, imgWidth, imgHeight);
+		data = loadPPM("../Project3-Assets/right-ppm/pz.ppm", imgWidth, imgHeight);
+		rightTextures[1] = rightwall->loadQuadTexture(data, imgWidth, imgHeight);
+
+		data = loadPPM("../Project3-Assets/left-ppm/ny.ppm", imgWidth, imgHeight);
+		floorTextures[0] = floor->loadQuadTexture(data, imgWidth, imgHeight);
+		data = loadPPM("../Project3-Assets/right-ppm/ny.ppm", imgWidth, imgHeight);
+		floorTextures[1] = floor->loadQuadTexture(data, imgWidth, imgHeight);
+
+
+		//Set up frame buffer
+		glGenFramebuffers(1, &fbo);
+		glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+
+		// The texture we're going to render to
+		glGenTextures(1, &renderedTexture);
+
+		// "Bind" the newly created texture : all future texture functions will modify this texture
+		glBindTexture(GL_TEXTURE_2D, renderedTexture);
+
+		// Give an empty image to OpenGL ( the last "0" )
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, 1024, 1024, 0, GL_RGB, GL_UNSIGNED_BYTE, 0);
+
+		// Poor filtering. Needed !
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+		// The depth buffer
+		GLuint depthrenderbuffer;
+		glGenRenderbuffers(1, &depthrenderbuffer);
+		glBindRenderbuffer(GL_RENDERBUFFER, depthrenderbuffer);
+		glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT, 1024, 1024);
+		glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, 
+			GL_RENDERBUFFER, depthrenderbuffer);
+
+		// Set "renderedTexture" as our colour attachement #0
+		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, renderedTexture, 0);
+
+		// Set the list of draw buffers.
+		GLenum DrawBuffers[1] = { GL_COLOR_ATTACHMENT0 };
+		glDrawBuffers(1, DrawBuffers); // "1" is the size of DrawBuffers
+
+		glBindTexture(GL_TEXTURE_2D, 0);
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	}
 
-	void render(const mat4 & projection, const mat4 & modelview, ovrSession session, ovrEyeType eye, int displayMode) {
+	void render(const mat4 & projection, const mat4 & modelview, ovrSession session, ovrEyeType eye, int displayMode, GLuint hmd_fbo, ovrLayerEyeFov _sceneLayer, uvec2 windowSize) {
 
 		//resizeBox(session);
 
 		glUseProgram(shaderProg);
 
-		//Draw Skybox	
+		//Draw CAVE
 		GLuint uProjection = glGetUniformLocation(shaderProg, "projection");
 		GLuint uModelview = glGetUniformLocation(shaderProg, "modelview");
 		GLuint uTransform = glGetUniformLocation(shaderProg, "transform");
-		glm::mat4 transform;
+		GLuint uColor = glGetUniformLocation(shaderProg, "incolor");
+		
 		glUniformMatrix4fv(uProjection, 1, GL_FALSE, (&projection[0][0]));
 		glUniformMatrix4fv(uModelview, 1, GL_FALSE, &(modelview[0][0]));
+
+		//Axis boxes
+		/*glm::mat4 transform;
+		glm::vec3 color;
+
+		color = vec3(1, 0, 0);
+		transform = glm::scale(mat4(1.f), vec3(10, 0.0005f, 0.0005f));
 		glUniformMatrix4fv(uTransform, 1, GL_FALSE, &(transform[0][0]));
+		glUniform3fv(uColor, 1, &(color[0]));
+		x->draw(shaderProg);
+		color = vec3(0, 1, 0);
+		transform = glm::scale(mat4(1.f), vec3(0.0005f, 10, 0.0005f));
+		glUniformMatrix4fv(uTransform, 1, GL_FALSE, &(transform[0][0]));
+		glUniform3fv(uColor, 1, &(color[0]));
+		y->draw(shaderProg);
+		color = vec3(0, 0, 1);
+		transform = glm::scale(mat4(1.f), vec3(0.0005f, 0.0005f, 10));
+		glUniformMatrix4fv(uTransform, 1, GL_FALSE, &(transform[0][0]));
+		glUniform3fv(uColor, 1, &(color[0]));
+		z->draw(shaderProg);*/
 
-		square->draw(shaderProg);
+		//MATHEMATICS
+		vec3 va = pa - eyePoses[eye];
+		
+		glEnable(GL_DEPTH_TEST);
 
-		/*if (displayMode != 0) {
-			glDepthMask(GL_FALSE);
-			glm::mat4 skyboxTransform = glm::scale(glm::mat4(1.0f), glm::vec3(20.0f));
-			glUniformMatrix4fv(uTransform, 1, GL_FALSE, &(skyboxTransform[0][0]));
-			skybox->draw(shaderProg, texture_skybox[eye]);
-			glDepthMask(GL_TRUE);
-		}		
+		glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+		//glViewport(0, 0, windowSize.x, windowSize.y);
+		glViewport(0, 0, 1024, 1024);
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-		if (displayMode != 1) {
-			glm::mat4 boxtransform;
-			boxtransform = glm::translate(boxtransform, glm::vec3(0.0f, 0.f, -1.0f));
-			boxtransform = glm::scale(boxtransform, glm::vec3(boxScale));
-			glUniformMatrix4fv(uTransform, 1, GL_FALSE, &(boxtransform[0][0]));
-			box->draw(shaderProg, texture_box);
-		}*/
+		//Render cubes to walls
+		glm::mat4 boxtransform;
+		boxtransform = glm::translate(boxtransform, glm::vec3(0.0f, 0.f, -1.f));
+		boxtransform = glm::scale(boxtransform, glm::vec3(0.1f));
+		glUniformMatrix4fv(uTransform, 1, GL_FALSE, &(boxtransform[0][0]));
+		box->draw(shaderProg, texture_box);
 
+		glDepthMask(GL_FALSE);
+		glm::mat4 skyboxTransform = glm::scale(glm::mat4(1.0f), glm::vec3(20.0f));
+		glUniformMatrix4fv(uTransform, 1, GL_FALSE, &(skyboxTransform[0][0]));
+		skybox->draw(shaderProg, texture_skybox[eye]);
 
+		glDepthMask(GL_TRUE);
+
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+		//glViewport(0, 0, imgWidth, imgHeight);
+		const auto& vp = _sceneLayer.Viewport[eye];
+		glViewport(vp.Pos.x, vp.Pos.y, vp.Size.w, vp.Size.h);
+		glClear(GL_COLOR_BUFFER_BIT);
+
+		glDisable(GL_DEPTH_TEST);
+
+		//DRAW THE CAVE!!!!!~~~***///:^))))))
+		glBindFramebuffer(GL_FRAMEBUFFER, hmd_fbo);
+
+		glUseProgram(screenShaderProg);
+		uProjection = glGetUniformLocation(screenShaderProg, "projection");
+		uModelview = glGetUniformLocation(screenShaderProg, "modelview");
+		uTransform = glGetUniformLocation(screenShaderProg, "transform");
+		uColor = glGetUniformLocation(screenShaderProg, "incolor");
+
+		glUniformMatrix4fv(uProjection, 1, GL_FALSE, (&projection[0][0]));
+		glUniformMatrix4fv(uModelview, 1, GL_FALSE, &(modelview[0][0]));
+
+		//left wall
+		glm::mat4 leftTransform;
+		const glm::vec3 leftColor(0, 0.7f, 0);
+		leftTransform = glm::rotate((float)glm::radians(45.f), glm::vec3(0, 1, 0));
+		leftTransform = glm::scale(leftTransform, vec3(1.2f));
+		leftTransform = glm::translate(leftTransform, vec3(-0.f, 0, -1));
+		glUniformMatrix4fv(uTransform, 1, GL_FALSE, &(leftTransform[0][0]));
+		glUniform3fv(uColor, 1, &(leftColor[0]));
+		leftwall->draw(screenShaderProg, renderedTexture);//leftTextures[eye]);
+
+		//right wall
+		glm::mat4 rightTransform;
+		const glm::vec3 rightColor(0, 0, 0.7f);
+		rightTransform = glm::rotate((float)glm::radians(-45.f), glm::vec3(0, 1, 0));
+		rightTransform = glm::scale(rightTransform, vec3(1.2f));
+		rightTransform = glm::translate(rightTransform, vec3(0.f, 0, -1));
+		glUniformMatrix4fv(uTransform, 1, GL_FALSE, &(rightTransform[0][0]));
+		glUniform3fv(uColor, 1, &(rightColor[0]));
+		rightwall->draw(screenShaderProg, renderedTexture);//rightTextures[eye]);
+
+		//floor
+		glm::mat4 floorTransform;
+		const glm::vec3 floorColor(0.7f, 0, 0);
+		floorTransform = glm::rotate(glm::radians(-90.f), glm::vec3(1, 0, 0));
+		floorTransform = glm::rotate(floorTransform, glm::radians(45.f), glm::vec3(0, 0, 1));
+		floorTransform = glm::scale(floorTransform, glm::vec3(1.2f));
+		floorTransform = glm::translate(floorTransform, glm::vec3(0, 0, -1.f));
+		glUniformMatrix4fv(uTransform, 1, GL_FALSE, &(floorTransform[0][0]));
+		glUniform3fv(uColor, 1, &(floorColor[0]));
+		floor->draw(screenShaderProg, renderedTexture);//floorTextures[eye]);
+		
 	}
 
-	/*void resizeBox(ovrSession session) {
+	void resizeBox(ovrSession session) {
 		ovrInputState inputState;
 		if (OVR_SUCCESS(ovr_GetInputState(session, ovrControllerType_Touch, &inputState)))
 		{
@@ -911,7 +1049,7 @@ public:
 				boxScale = 0.2f;
 			}
 		}
-	}*/
+	}
 };
 
 
@@ -926,7 +1064,7 @@ public:
 protected:
 	void initGl() override {
 		RiftApp::initGl();
-		glClearColor(0, 1, 0, 0);
+		glClearColor(0.5, 0.5, 0.5, 0);
 		glEnable(GL_DEPTH_TEST);
 		ovr_RecenterTrackingOrigin(_session);
 		cubeScene = std::shared_ptr<ColorCubeScene>(new ColorCubeScene());
@@ -936,8 +1074,8 @@ protected:
 		cubeScene.reset();
 	}
 
-	void renderScene(const glm::mat4 & projection, const glm::mat4 & headPose, ovrEyeType eye, int displaymode) override {
-		cubeScene->render(projection, glm::inverse(headPose), _session, eye, displaymode);
+	void renderScene(const glm::mat4 & projection, const glm::mat4 & headPose, ovrEyeType eye, int displaymode, GLuint hmd_fbo, ovrLayerEyeFov _sceneLayer, uvec2 windowSize) override {
+		cubeScene->render(projection, glm::inverse(headPose), _session, eye, displaymode, hmd_fbo, _sceneLayer, windowSize);
 	}
 };
 

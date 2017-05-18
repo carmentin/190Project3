@@ -36,6 +36,12 @@
       <Filter>Source Files</Filter>
     </None>
     <None Include="packages.config" />
+    <None Include="screenShader.frag">
+      <Filter>Source Files</Filter>
+    </None>
+    <None Include="screenShader.vert">
+      <Filter>Source Files</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Box.h">
