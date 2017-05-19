@@ -2,11 +2,14 @@
 
 in vec2 texCoords;
 uniform sampler2D renderedTexture;
+uniform int broken;
 
 out vec3 color;
 
 void main()
 {
 	color = texture(renderedTexture, texCoords).rgb;
-	//color = (0.3, 0.3, 0.3)
+	if(broken > 0){
+		color = vec3(0,0,0);
+	}
 }

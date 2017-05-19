@@ -704,6 +704,8 @@ unsigned char* loadPPM(const char* filename, int& width, int& height)
 #define OGLPLUS_USE_BOOST_CONFIG 0
 #define OGLPLUS_NO_SITE_CONFIG 1
 #define OGLPLUS_LOW_PROFILE 1
+#define LEFT 0
+#define RIGHT 1
 
 #pragma warning( disable : 4068 4244 4267 4065)
 #include <oglplus/config/basic.hpp>
@@ -745,6 +747,7 @@ struct ColorCubeScene {
 	GLuint pyrShaderProg;
 	GLuint texture_box;
 	GLuint texture_skybox[2];
+	GLuint texture_biggerskybox;
 	
 	unsigned char * imgData; 
 	int imgWidth;
@@ -754,6 +757,7 @@ struct ColorCubeScene {
 	glm::mat4 boxtransform;
 	float boxScale = 0.2f;
 	Box * skybox;
+	Box * biggerSkyBox;
 
 	Box * x;
 	Box * y;
@@ -769,6 +773,7 @@ struct ColorCubeScene {
 	glm::vec3 leftWallVerts[4];
 	glm::vec3 rightWallVerts[4];
 	glm::vec3 floorVerts[4];
+	glm::vec3 eyePos[2];
 
 	Pyramid * lefteye_wireFrames [3];
 	Pyramid * righteye_wireFrames[3];
@@ -778,8 +783,20 @@ struct ColorCubeScene {
 	GLuint fbo;
 	GLuint renderedTexture;
 
+	mat4 posOnly = mat4(1.0f);
+
 	bool B_down = false;
+	bool A_down = false;
+	bool X_down = false;
 	bool track = true;
+	bool debug = false;
+	bool broken = false;
+	bool viewFromController = false;
+	// For controller input
+	ovrTrackingState trackstate;
+	ovrPosef handPoses[2];
+	ovrInputState inputstate;
+	bool triggerPressed[2] = { false, false };
 
 	// VBOs for the cube's vertices and normals
 	//const unsigned int GRID_SIZE{ 5 };
@@ -799,8 +816,8 @@ public:
 
 		box = new Box();
 		boxtransform = glm::translate(boxtransform, glm::vec3(0.0f, 0.f, -1.f));
-		boxtransform = glm::scale(boxtransform, glm::vec3(boxScale));
 		skybox = new Box();		
+		biggerSkyBox = new Box();
 
 		//Acquire the width, height, and data
 
@@ -828,6 +845,15 @@ public:
 		skyboxDataVec2.push_back(loadPPM("../Project3-Assets/right-ppm/nz.ppm", imgWidth, imgHeight));
 		texture_skybox[1] = skybox->loadBoxTexture(skyboxDataVec2, imgWidth, imgWidth);
 		
+		//Load biggerskybox textures
+		vector<unsigned char*> biggerSkyboxDataVec;
+		biggerSkyboxDataVec.push_back(loadPPM("../Project3-Assets/bsk/SunSetLeft2048.ppm", imgWidth, imgHeight));
+		biggerSkyboxDataVec.push_back(loadPPM("../Project3-Assets/bsk/SunSetRight2048.ppm", imgWidth, imgHeight));
+		biggerSkyboxDataVec.push_back(loadPPM("../Project3-Assets/bsk/SunSetUp2048.ppm", imgWidth, imgHeight));
+		biggerSkyboxDataVec.push_back(loadPPM("../Project3-Assets/bsk/SunSetDown2048.ppm", imgWidth, imgHeight));
+		biggerSkyboxDataVec.push_back(loadPPM("../Project3-Assets/bsk/SunSetFront2048.ppm", imgWidth, imgHeight));
+		biggerSkyboxDataVec.push_back(loadPPM("../Project3-Assets/bsk/SunSetBack2048.ppm", imgWidth, imgHeight));
+		texture_biggerskybox = biggerSkyBox->loadBoxTexture(biggerSkyboxDataVec, imgWidth, imgWidth);
 
 		unsigned char* data = loadPPM("../Project3-Assets/left-ppm/nx.ppm", imgWidth, imgHeight);
 		leftTextures[0] = leftwall->loadQuadTexture(data, imgWidth, imgHeight);
@@ -898,7 +924,25 @@ public:
 	}
 
 	void render(const mat4 & projection, const mat4 & modelview, ovrSession session, ovrEyeType eye, int displayMode, GLuint hmd_fbo, ovrLayerEyeFov _sceneLayer, uvec2 windowSize) {
-		resizeBox(session, track, B_down);
+		checkInput(session, track, B_down, A_down, debug);
+
+		//Check controller input
+		// Position + Orientation
+		double displayMidpointSeconds = ovr_GetPredictedDisplayTime(session, 0);
+		trackstate = ovr_GetTrackingState(session, displayMidpointSeconds, ovrTrue);
+
+		//handPoses[LEFT] = trackstate.HandPoses[ovrHand_Left].ThePose;
+		handPoses[RIGHT] = trackstate.HandPoses[ovrHand_Right].ThePose;
+
+
+		// T R I G G E R E D
+		// finger triggers
+		if (OVR_SUCCESS(ovr_GetInputState(session, ovrControllerType_Touch, &inputstate))) {
+			//triggerPressed[LEFT] = inputstate.HandTrigger[ovrHand_Left] > 0.5f;
+			triggerPressed[RIGHT] = inputstate.HandTrigger[ovrHand_Right] > 0.5f;
+		}
+
+		viewFromController = triggerPressed[RIGHT];
 
 		glUseProgram(shaderProg);
 
@@ -907,9 +951,27 @@ public:
 		GLuint uModelview = glGetUniformLocation(shaderProg, "modelview");
 		GLuint uTransform = glGetUniformLocation(shaderProg, "transform");
 		GLuint uColor = glGetUniformLocation(shaderProg, "incolor");
-		
+
 		glUniformMatrix4fv(uProjection, 1, GL_FALSE, (&projection[0][0]));
-		glUniformMatrix4fv(uModelview, 1, GL_FALSE, &(modelview[0][0]));
+		glUniformMatrix4fv(uModelview, 1, GL_FALSE, &modelview[0][0]);
+
+		glm::mat4 bskTransform = glm::scale(glm::mat4(1.0f), glm::vec3(20.0f));
+		glUniformMatrix4fv(uTransform, 1, GL_FALSE, &(bskTransform[0][0]));
+		biggerSkyBox->draw(shaderProg, texture_biggerskybox);
+
+		
+		
+		if (viewFromController) {
+			glm::mat4 mv = ovr::toGlm(handPoses[RIGHT]);
+			mv = glm::inverse(mv);
+			glUniformMatrix4fv(uModelview, 1, GL_FALSE, &(mv[0][0]));
+		}
+		else {
+			if (track)
+				posOnly[3] = modelview[3];
+			glUniformMatrix4fv(uModelview, 1, GL_FALSE, &(posOnly[0][0]));
+		}		
+		
 
 		//---------------Coordinate axes---------------//
 		/*glm::mat4 transform;
@@ -951,75 +1013,102 @@ public:
 		floorTransform = glm::translate(floorTransform, glm::vec3(0, 0, -1.f));
 
 		//LEFT WALL MATH
-		vec3 eyePos = vec3(ovr::toGlm(_sceneLayer.RenderPose[eye])[3]);
+		if (viewFromController) {
+			if (track) {
+				if (!eye) {	//Left eye
+					eyePos[eye] = vec3(ovr::toGlm(handPoses[RIGHT].Position));
+					eyePos[eye].x -= 0.0325f;
+				}
+				else { //Right
+					eyePos[eye] = vec3(ovr::toGlm(handPoses[RIGHT].Position));
+					eyePos[eye].x += 0.0325f;
+				}
+				
+			}
+		}
+		else {
+			if (track)
+				eyePos[eye] = vec3(ovr::toGlm(_sceneLayer.RenderPose[eye].Position));
+		} 
 		leftWallVerts[0] = leftTransform * vec4(leftwall->vertices[0], 1.0f);
 		leftWallVerts[1] = leftTransform * vec4(leftwall->vertices[1], 1.0f);
 		leftWallVerts[2] = leftTransform * vec4(leftwall->vertices[2], 1.0f);
 		leftWallVerts[3] = leftTransform * vec4(leftwall->vertices[3], 1.0f);
-		//vec3 leftva = bottomLeft - eyePos;
-		//vec3 leftvb = bottomRight - eyePos;
-		//vec3 leftvc = topLeft - eyePos;
-		
+		vec3 va = leftWallVerts[0] - eyePos[eye];
+		vec3 vb = leftWallVerts[1] - eyePos[eye];
+		vec3 vc = leftWallVerts[3] - eyePos[eye];
+
 		vec3 vr = glm::normalize(leftWallVerts[1] - leftWallVerts[0]);
 		vec3 vu = glm::normalize(leftWallVerts[3] - leftWallVerts[0]);
 		vec3 vn = glm::normalize(glm::cross(vr, vu));
-		//float leftDist = -glm::dot(leftNormal, leftva);
+		float dist = -glm::dot(vn, va);
+		float l = glm::dot(vr, va) * 0.001f / dist;
+		float r = glm::dot(vr, vb) * 0.001f / dist;
+		float b = glm::dot(vu, va) * 0.001f / dist;
+		float t = glm::dot(vu, vc) * 0.001f / dist;
 		mat4 M = mat4(1.0f);
 		M[0] = vec4(vr, 0.f);
 		M[1] = vec4(vu, 0.f);
 		M[2] = vec4(vn, 0.f);
 		M = glm::transpose(M);
 		mat4 T = mat4(1.0f);
-		T[3] = vec4(-eyePos.x, -eyePos.y, -eyePos.z, 1.0f);
-		quadProjections[0] = projection * M * T;
+		T[3] = vec4(-eyePos[eye].x, -eyePos[eye].y, -eyePos[eye].z, 1.0f);
+		quadProjections[0] = glm::frustum(l, r, b, t, 0.001f, 1000.f) * M * T;
 
 		//RIGHT WALL MATH
 		rightWallVerts[0] = rightTransform * vec4(rightwall->vertices[0], 1.0f);
 		rightWallVerts[1] = rightTransform * vec4(rightwall->vertices[1], 1.0f);
 		rightWallVerts[2] = rightTransform * vec4(rightwall->vertices[2], 1.0f);
 		rightWallVerts[3] = rightTransform * vec4(rightwall->vertices[3], 1.0f);
-		//vec3 leftva = bottomLeft - eyePos;
-		//vec3 leftvb = bottomRight - eyePos;
-		//vec3 leftvc = topLeft - eyePos;
+		va = rightWallVerts[0] - eyePos[eye];
+		vb = rightWallVerts[1] - eyePos[eye];
+		vc = rightWallVerts[3] - eyePos[eye];
 
 		vr = glm::normalize(rightWallVerts[1] - rightWallVerts[0]);
 		vu = glm::normalize(rightWallVerts[3] - rightWallVerts[0]);
 		vn = glm::normalize(glm::cross(vr, vu));
-		//float leftDist = -glm::dot(vn, leftva);
+		dist = -glm::dot(vn, va);
+		l = glm::dot(vr, va) * 0.001f / dist;
+		r = glm::dot(vr, vb) * 0.001f / dist;
+		b = glm::dot(vu, va) * 0.001f / dist;
+		t = glm::dot(vu, vc) * 0.001f / dist;
 		M = mat4(1.0f);
 		M[0] = vec4(vr, 0.f);
 		M[1] = vec4(vu, 0.f);
 		M[2] = vec4(vn, 0.f);
 		M = glm::transpose(M);
 		T = mat4(1.0f);
-		T[3] = vec4(-eyePos.x, -eyePos.y, -eyePos.z, 1.0f);
-		quadProjections[1] = projection * M * T;
+		T[3] = vec4(-eyePos[eye].x, -eyePos[eye].y, -eyePos[eye].z, 1.0f);
+		quadProjections[1] = glm::frustum(l, r, b, t, 0.001f, 1000.f) * M * T;
 
 		//FLOOR WALL MATH
 		floorVerts[0] = floorTransform * vec4(floor->vertices[0], 1.0f);
 		floorVerts[1] = floorTransform * vec4(floor->vertices[1], 1.0f);
 		floorVerts[2] = floorTransform * vec4(floor->vertices[2], 1.0f);
 		floorVerts[3] = floorTransform * vec4(floor->vertices[3], 1.0f);
-		//vec3 leftva = bottomLeft - eyePos;
-		//vec3 leftvb = bottomRight - eyePos;
-		//vec3 leftvc = topLeft - eyePos;
+		va = floorVerts[0] - eyePos[eye];
+		vb = floorVerts[1] - eyePos[eye];
+		vc = floorVerts[3] - eyePos[eye];
 
 		vr = glm::normalize(floorVerts[1] - floorVerts[0]);
 		vu = glm::normalize(floorVerts[3] - floorVerts[0]);
 		vn = glm::normalize(glm::cross(vr, vu));
-		//float leftDist = -glm::dot(vn, leftva);
+		dist = -glm::dot(vn, va);
+		l = glm::dot(vr, va) * 0.001f / dist;
+		r = glm::dot(vr, vb) * 0.001f / dist;
+		b = glm::dot(vu, va) * 0.001f / dist;
+		t = glm::dot(vu, vc) * 0.001f / dist;
 		M = mat4(1.0f);
 		M[0] = vec4(vr, 0.f);
 		M[1] = vec4(vu, 0.f);
 		M[2] = vec4(vn, 0.f);
 		M = glm::transpose(M);
 		T = mat4(1.0f);
-		T[3] = vec4(-eyePos.x, -eyePos.y, -eyePos.z, 1.0f);
-		quadProjections[2] = projection * M * T;
+		T[3] = vec4(-eyePos[eye].x, -eyePos[eye].y, -eyePos[eye].z, 1.0f);
+		quadProjections[2] = glm::frustum(l, r, b, t, 0.001f, 1000.f) * M * T;
 		//---------------MATHEMATICS END---------------//
-		
 
-		if (track) {
+		//if (track) {
 			glEnable(GL_DEPTH_TEST);
 
 			glBindFramebuffer(GL_FRAMEBUFFER, fbo);
@@ -1036,7 +1125,8 @@ public:
 				glUniformMatrix4fv(uProjection, 1, GL_FALSE, (&quadProjections[i][0][0]));
 				//Render cubes to walls
 
-				glUniformMatrix4fv(uTransform, 1, GL_FALSE, &(boxtransform[0][0]));
+				mat4 scaledBoxTransform = glm::scale(boxtransform, glm::vec3(boxScale));
+				glUniformMatrix4fv(uTransform, 1, GL_FALSE, &(scaledBoxTransform[0][0]));
 				box->draw(shaderProg, texture_box);
 
 				glDepthMask(GL_FALSE);
@@ -1048,24 +1138,28 @@ public:
 
 			glBindFramebuffer(GL_FRAMEBUFFER, 0);
 			//glViewport(0, 0, imgWidth, imgHeight);
-			const auto& vp = _sceneLayer.Viewport[eye];
-			glViewport(vp.Pos.x, vp.Pos.y, vp.Size.w, vp.Size.h);
+			
 			glClear(GL_COLOR_BUFFER_BIT);
 
 			glDisable(GL_DEPTH_TEST);
-		}
+		//}
 
+		
 		//---------------Draw the CAVE---------------//
 		glBindFramebuffer(GL_FRAMEBUFFER, hmd_fbo);
+		const auto& vp = _sceneLayer.Viewport[eye];
+		glViewport(vp.Pos.x, vp.Pos.y, vp.Size.w, vp.Size.h);
 
 		glUseProgram(screenShaderProg);
 		uProjection = glGetUniformLocation(screenShaderProg, "projection");
 		uModelview = glGetUniformLocation(screenShaderProg, "modelview");
 		uTransform = glGetUniformLocation(screenShaderProg, "transform");
 		uColor = glGetUniformLocation(screenShaderProg, "incolor");
+		GLuint uBroken = glGetUniformLocation(screenShaderProg, "broken");
 
 		glUniformMatrix4fv(uProjection, 1, GL_FALSE, (&projection[0][0]));
 		glUniformMatrix4fv(uModelview, 1, GL_FALSE, &(modelview[0][0]));
+		glUniform1i(uBroken, 0);
 
 		//left wall
 		const glm::vec3 leftColor(0, 0.7f, 0);
@@ -1083,58 +1177,65 @@ public:
 		const glm::vec3 floorColor(0.7f, 0, 0);
 		glUniformMatrix4fv(uTransform, 1, GL_FALSE, &(floorTransform[0][0]));
 		glUniform3fv(uColor, 1, &(floorColor[0]));
+		if(eye && broken)
+			glUniform1i(uBroken, 2);
 		floor->draw(screenShaderProg, renderedTextures[eye * 3 + 2]);//floorTextures[eye]);
-
-		//---------------Wireframes---------------//
-		glUseProgram(pyrShaderProg);
-
-		//Draw wireframes
-		uProjection = glGetUniformLocation(pyrShaderProg, "projection");
-		uModelview = glGetUniformLocation(pyrShaderProg, "modelview");
-		uTransform = glGetUniformLocation(pyrShaderProg, "transform");
-		uColor = glGetUniformLocation(pyrShaderProg, "incolor");
-
-		glUniformMatrix4fv(uProjection, 1, GL_FALSE, (&projection[0][0]));
-		glUniformMatrix4fv(uModelview, 1, GL_FALSE, &(modelview[0][0]));
-
-		//Pyramid coordinates
-		glm::mat4 pyr_transform;
-		glUniformMatrix4fv(uTransform, 1, GL_FALSE, &(pyr_transform[0][0]));
 		
-		//LEFT EYE WIREFRAMES 
-		//LEFT WALL WIREFRAME
-		glm::vec3 wireframe_color(0, 0, 1);
-		glUniform3fv(uColor, 1, &(wireframe_color[0]));
-		std::vector<glm::vec3> leftWall_vertices = {
-			leftWallVerts[0], leftWallVerts[1], leftWallVerts[3], leftWallVerts[2]
-		};
-		leftWall_vertices.insert(leftWall_vertices.begin(), vec3(0, 0, 0));
-		lefteye_wireFrames[0] = new Pyramid(leftWall_vertices);	
-		lefteye_wireFrames[0]->draw(pyrShaderProg);
 
-		//RIGHT WALL WIREFRAME
-		wireframe_color = vec3(1, 0, 0);
-		glUniform3fv(uColor, 1, &(wireframe_color[0]));
-		std::vector<glm::vec3> rightWall_vertices = {
-			rightWallVerts[0], rightWallVerts[1], rightWallVerts[3], rightWallVerts[2]
-		};
-		rightWall_vertices.insert(rightWall_vertices.begin(), vec3(0, 0, 0));
-		lefteye_wireFrames[1] = new Pyramid(rightWall_vertices);	
-		lefteye_wireFrames[1]->draw(pyrShaderProg);
+		
+		//---------------Wireframes---------------//
+		//If A is pressed
+		if (debug) {
+			glUseProgram(pyrShaderProg);
 
-		//FLOOR WIREFRAME
-		wireframe_color = vec3(0, 1, 0);
-		glUniform3fv(uColor, 1, &(wireframe_color[0]));
-		std::vector<glm::vec3> floor_vertices = {
-			floorVerts[0], floorVerts[1], floorVerts[3], floorVerts[2]
-		};
-		floor_vertices.insert(floor_vertices.begin(), vec3(0, 0, 0));
-		lefteye_wireFrames[2] = new Pyramid(floor_vertices);
-		lefteye_wireFrames[2]->draw(pyrShaderProg);
+			//Draw wireframes
+			uProjection = glGetUniformLocation(pyrShaderProg, "projection");
+			uModelview = glGetUniformLocation(pyrShaderProg, "modelview");
+			uTransform = glGetUniformLocation(pyrShaderProg, "transform");
+			uColor = glGetUniformLocation(pyrShaderProg, "incolor");
+
+			glUniformMatrix4fv(uProjection, 1, GL_FALSE, (&projection[0][0]));
+			glUniformMatrix4fv(uModelview, 1, GL_FALSE, &(modelview[0][0]));
+						
+			//Pyramid coordinates
+			glm::mat4 pyr_transform;
+			glUniformMatrix4fv(uTransform, 1, GL_FALSE, &(pyr_transform[0][0]));
+
+			//LEFT EYE WIREFRAMES 
+			//LEFT WALL WIREFRAME
+			glm::vec3 wireframe_color(0, 0, 1);
+			glUniform3fv(uColor, 1, &(wireframe_color[0]));
+			std::vector<glm::vec3> leftWall_vertices = {
+				leftWallVerts[0], leftWallVerts[1], leftWallVerts[3], leftWallVerts[2]
+			};
+			leftWall_vertices.insert(leftWall_vertices.begin(), vec3(eyePos[eye].x, eyePos[eye].y, eyePos[eye].z));
+			lefteye_wireFrames[0] = new Pyramid(leftWall_vertices);
+			lefteye_wireFrames[0]->draw(pyrShaderProg);
+
+			//RIGHT WALL WIREFRAME
+			wireframe_color = vec3(1, 0, 0);
+			glUniform3fv(uColor, 1, &(wireframe_color[0]));
+			std::vector<glm::vec3> rightWall_vertices = {
+				rightWallVerts[0], rightWallVerts[1], rightWallVerts[3], rightWallVerts[2]
+			};
+			rightWall_vertices.insert(rightWall_vertices.begin(), vec3(eyePos[eye].x, eyePos[eye].y, eyePos[eye].z));
+			lefteye_wireFrames[1] = new Pyramid(rightWall_vertices);
+			lefteye_wireFrames[1]->draw(pyrShaderProg);
+
+			//FLOOR WIREFRAME
+			wireframe_color = vec3(0, 1, 0);
+			glUniform3fv(uColor, 1, &(wireframe_color[0]));
+			std::vector<glm::vec3> floor_vertices = {
+				floorVerts[0], floorVerts[1], floorVerts[3], floorVerts[2]
+			};
+			floor_vertices.insert(floor_vertices.begin(), vec3(eyePos[eye].x, eyePos[eye].y, eyePos[eye].z));
+			lefteye_wireFrames[2] = new Pyramid(floor_vertices);
+			lefteye_wireFrames[2]->draw(pyrShaderProg);
+		}
 
 	}
 
-	void resizeBox(ovrSession session, bool &track, bool &B_down) {
+	void checkInput(ovrSession session, bool &track, bool &B_down, bool& A_down, bool& debug) {
 		ovrInputState inputState;
 		if (OVR_SUCCESS(ovr_GetInputState(session, ovrControllerType_Touch, &inputState)))
 		{
@@ -1142,8 +1243,7 @@ public:
 			if (inputState.Thumbstick[ovrHand_Left].x != 0) {
 				float temp = boxScale + (inputState.Thumbstick[ovrHand_Left].x * 0.01f);
 				if (temp > 0.01f && temp < 1.0f)
-					printf("Hello");
-					boxScale += (inputState.Thumbstick[ovrHand_Left].x * 0.01f);
+					boxScale = temp;
 			}
 
 			// On left thumbstick press, reset box size
@@ -1155,7 +1255,7 @@ public:
 			if (inputState.Thumbstick[ovrHand_Right].x != 0 || inputState.Thumbstick[ovrHand_Right].y != 0 
 					|| inputState.Thumbstick[ovrHand_Left].y != 0) {
 				boxtransform = glm::translate(boxtransform, vec3(inputState.Thumbstick[ovrHand_Right].x * 0.01f, 
-					inputState.Thumbstick[ovrHand_Right].y * 0.01f, inputState.Thumbstick[ovrHand_Left].y * 0.01f));
+					inputState.Thumbstick[ovrHand_Right].y * 0.01f, inputState.Thumbstick[ovrHand_Left].y * -0.01f));
 			}
 
 			// On B press, change head tracking mode
@@ -1167,6 +1267,25 @@ public:
 			if (!(inputState.Buttons & ovrButton_B)) {
 				B_down = false;
 			}
+
+			// Check A press
+			if (inputState.Buttons & ovrButton_A && !A_down) {
+				A_down = true;
+				debug = !debug;				
+			}
+			if (!(inputState.Buttons & ovrButton_A)) {
+				A_down = false;
+			}
+
+			// Check X press
+			if (inputState.Buttons & ovrButton_X && !X_down) {
+				X_down = true;
+				broken = !broken;
+			}
+			if (!(inputState.Buttons & ovrButton_X)) {
+				X_down = false;
+			}
+
 		}
 	}
 };
