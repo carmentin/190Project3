@@ -29,7 +29,11 @@ public:
 
 	GLuint VBO, VAO, EBO;
 
-	glm::vec3 vertices[4] = { glm::vec3(-1.f, -1.f, 0.f), glm::vec3(1.f, -1.f, 0.f), glm::vec3(1.f, 1.f, 0.f), glm::vec3(-1.f, 1.f, 0.f) };
+	glm::vec3 vertices[4] = { 
+		glm::vec3(-1.f, -1.f, 0.f), //0 bottom left
+		glm::vec3(1.f, -1.f, 0.f), //1 bottom right
+		glm::vec3(1.f, 1.f, 0.f),  //2 top right
+		glm::vec3(-1.f, 1.f, 0.f) }; //3 top left
 };
 
 const GLfloat quad_vertices[] = {

@@ -27,6 +27,7 @@ limitations under the License.
 #include "shader.h"
 #include "Box.h"
 #include "Quad.h"
+#include "Pyramid.h"
 
 #define __STDC_FORMAT_MACROS 1
 
@@ -602,7 +603,7 @@ protected:
 
 	void update() final override
 	{
-		ovrInputState inputState;
+		//ovrInputState inputState;
 		/*if (OVR_SUCCESS(ovr_GetInputState(_session, ovrControllerType_Touch, &inputState)))
 		{			
 			// On B press, change head tracking mode
@@ -741,6 +742,7 @@ struct ColorCubeScene {
 
 	GLuint shaderProg;
 	GLuint screenShaderProg;
+	GLuint pyrShaderProg;
 	GLuint texture_box;
 	GLuint texture_skybox[2];
 	
@@ -764,6 +766,13 @@ struct ColorCubeScene {
 	Quad * floor;
 	GLuint floorTextures[2];
 
+	glm::vec3 leftWallVerts[4];
+	glm::vec3 rightWallVerts[4];
+	glm::vec3 floorVerts[4];
+
+	Pyramid * lefteye_wireFrames [3];
+	Pyramid * righteye_wireFrames[3];
+
 	mat4 quadProjections[3];
 	GLuint renderedTextures[6];
 	GLuint fbo;
@@ -779,6 +788,7 @@ public:
 	ColorCubeScene() : cube({ "Position", "Normal" }, oglplus::shapes::Cube()) {
 		shaderProg = LoadShaders("shader.vert", "shader.frag");
 		screenShaderProg = LoadShaders("screenShader.vert", "screenShader.frag");
+		pyrShaderProg = LoadShaders("pyrShader.vert", "pyrShader.frag");
 		leftwall = new Quad();
 		rightwall = new Quad();
 		floor = new Quad();
@@ -790,8 +800,7 @@ public:
 		box = new Box();
 		boxtransform = glm::translate(boxtransform, glm::vec3(0.0f, 0.f, -1.f));
 		boxtransform = glm::scale(boxtransform, glm::vec3(boxScale));
-		skybox = new Box();
-		
+		skybox = new Box();		
 
 		//Acquire the width, height, and data
 
@@ -884,6 +893,8 @@ public:
 			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 			glBindTexture(GL_TEXTURE_2D, 0);
 		}
+
+		glLineWidth(2.f);
 	}
 
 	void render(const mat4 & projection, const mat4 & modelview, ovrSession session, ovrEyeType eye, int displayMode, GLuint hmd_fbo, ovrLayerEyeFov _sceneLayer, uvec2 windowSize) {
@@ -900,7 +911,7 @@ public:
 		glUniformMatrix4fv(uProjection, 1, GL_FALSE, (&projection[0][0]));
 		glUniformMatrix4fv(uModelview, 1, GL_FALSE, &(modelview[0][0]));
 
-		//Axis boxes
+		//---------------Coordinate axes---------------//
 		/*glm::mat4 transform;
 		glm::vec3 color;
 
@@ -919,6 +930,7 @@ public:
 		glUniformMatrix4fv(uTransform, 1, GL_FALSE, &(transform[0][0]));
 		glUniform3fv(uColor, 1, &(color[0]));
 		z->draw(shaderProg);*/
+		//-----------------END AXES--------------------//
 
 
 		//-----------------MATHEMATICS-----------------//
@@ -940,15 +952,16 @@ public:
 
 		//LEFT WALL MATH
 		vec3 eyePos = vec3(ovr::toGlm(_sceneLayer.RenderPose[eye])[3]);
-		vec3 bottomLeft = leftTransform * vec4(leftwall->vertices[0], 1.0f);
-		vec3 bottomRight = leftTransform * vec4(leftwall->vertices[1], 1.0f);
-		vec3 topLeft = leftTransform * vec4(leftwall->vertices[3], 1.0f);
+		leftWallVerts[0] = leftTransform * vec4(leftwall->vertices[0], 1.0f);
+		leftWallVerts[1] = leftTransform * vec4(leftwall->vertices[1], 1.0f);
+		leftWallVerts[2] = leftTransform * vec4(leftwall->vertices[2], 1.0f);
+		leftWallVerts[3] = leftTransform * vec4(leftwall->vertices[3], 1.0f);
 		//vec3 leftva = bottomLeft - eyePos;
 		//vec3 leftvb = bottomRight - eyePos;
 		//vec3 leftvc = topLeft - eyePos;
 		
-		vec3 vr = glm::normalize(bottomRight - bottomLeft);
-		vec3 vu = glm::normalize(topLeft - bottomLeft);
+		vec3 vr = glm::normalize(leftWallVerts[1] - leftWallVerts[0]);
+		vec3 vu = glm::normalize(leftWallVerts[3] - leftWallVerts[0]);
 		vec3 vn = glm::normalize(glm::cross(vr, vu));
 		//float leftDist = -glm::dot(leftNormal, leftva);
 		mat4 M = mat4(1.0f);
@@ -961,15 +974,16 @@ public:
 		quadProjections[0] = projection * M * T;
 
 		//RIGHT WALL MATH
-		bottomLeft = rightTransform * vec4(rightwall->vertices[0], 1.0f);
-		bottomRight = rightTransform * vec4(rightwall->vertices[1], 1.0f);
-		topLeft = rightTransform * vec4(rightwall->vertices[3], 1.0f);
+		rightWallVerts[0] = rightTransform * vec4(rightwall->vertices[0], 1.0f);
+		rightWallVerts[1] = rightTransform * vec4(rightwall->vertices[1], 1.0f);
+		rightWallVerts[2] = rightTransform * vec4(rightwall->vertices[2], 1.0f);
+		rightWallVerts[3] = rightTransform * vec4(rightwall->vertices[3], 1.0f);
 		//vec3 leftva = bottomLeft - eyePos;
 		//vec3 leftvb = bottomRight - eyePos;
 		//vec3 leftvc = topLeft - eyePos;
 
-		vr = glm::normalize(bottomRight - bottomLeft);
-		vu = glm::normalize(topLeft - bottomLeft);
+		vr = glm::normalize(rightWallVerts[1] - rightWallVerts[0]);
+		vu = glm::normalize(rightWallVerts[3] - rightWallVerts[0]);
 		vn = glm::normalize(glm::cross(vr, vu));
 		//float leftDist = -glm::dot(vn, leftva);
 		M = mat4(1.0f);
@@ -982,15 +996,16 @@ public:
 		quadProjections[1] = projection * M * T;
 
 		//FLOOR WALL MATH
-		bottomLeft = floorTransform * vec4(floor->vertices[0], 1.0f);
-		bottomRight = floorTransform * vec4(floor->vertices[1], 1.0f);
-		topLeft = floorTransform * vec4(floor->vertices[3], 1.0f);
+		floorVerts[0] = floorTransform * vec4(floor->vertices[0], 1.0f);
+		floorVerts[1] = floorTransform * vec4(floor->vertices[1], 1.0f);
+		floorVerts[2] = floorTransform * vec4(floor->vertices[2], 1.0f);
+		floorVerts[3] = floorTransform * vec4(floor->vertices[3], 1.0f);
 		//vec3 leftva = bottomLeft - eyePos;
 		//vec3 leftvb = bottomRight - eyePos;
 		//vec3 leftvc = topLeft - eyePos;
 
-		vr = glm::normalize(bottomRight - bottomLeft);
-		vu = glm::normalize(topLeft - bottomLeft);
+		vr = glm::normalize(floorVerts[1] - floorVerts[0]);
+		vu = glm::normalize(floorVerts[3] - floorVerts[0]);
 		vn = glm::normalize(glm::cross(vr, vu));
 		//float leftDist = -glm::dot(vn, leftva);
 		M = mat4(1.0f);
@@ -1040,7 +1055,7 @@ public:
 			glDisable(GL_DEPTH_TEST);
 		}
 
-		//DRAW THE CAVE!!!!!~~~***///:^))))))
+		//---------------Draw the CAVE---------------//
 		glBindFramebuffer(GL_FRAMEBUFFER, hmd_fbo);
 
 		glUseProgram(screenShaderProg);
@@ -1069,7 +1084,54 @@ public:
 		glUniformMatrix4fv(uTransform, 1, GL_FALSE, &(floorTransform[0][0]));
 		glUniform3fv(uColor, 1, &(floorColor[0]));
 		floor->draw(screenShaderProg, renderedTextures[eye * 3 + 2]);//floorTextures[eye]);
+
+		//---------------Wireframes---------------//
+		glUseProgram(pyrShaderProg);
+
+		//Draw wireframes
+		uProjection = glGetUniformLocation(pyrShaderProg, "projection");
+		uModelview = glGetUniformLocation(pyrShaderProg, "modelview");
+		uTransform = glGetUniformLocation(pyrShaderProg, "transform");
+		uColor = glGetUniformLocation(pyrShaderProg, "incolor");
+
+		glUniformMatrix4fv(uProjection, 1, GL_FALSE, (&projection[0][0]));
+		glUniformMatrix4fv(uModelview, 1, GL_FALSE, &(modelview[0][0]));
+
+		//Pyramid coordinates
+		glm::mat4 pyr_transform;
+		glUniformMatrix4fv(uTransform, 1, GL_FALSE, &(pyr_transform[0][0]));
 		
+		//LEFT EYE WIREFRAMES 
+		//LEFT WALL WIREFRAME
+		glm::vec3 wireframe_color(0, 0, 1);
+		glUniform3fv(uColor, 1, &(wireframe_color[0]));
+		std::vector<glm::vec3> leftWall_vertices = {
+			leftWallVerts[0], leftWallVerts[1], leftWallVerts[3], leftWallVerts[2]
+		};
+		leftWall_vertices.insert(leftWall_vertices.begin(), vec3(0, 0, 0));
+		lefteye_wireFrames[0] = new Pyramid(leftWall_vertices);	
+		lefteye_wireFrames[0]->draw(pyrShaderProg);
+
+		//RIGHT WALL WIREFRAME
+		wireframe_color = vec3(1, 0, 0);
+		glUniform3fv(uColor, 1, &(wireframe_color[0]));
+		std::vector<glm::vec3> rightWall_vertices = {
+			rightWallVerts[0], rightWallVerts[1], rightWallVerts[3], rightWallVerts[2]
+		};
+		rightWall_vertices.insert(rightWall_vertices.begin(), vec3(0, 0, 0));
+		lefteye_wireFrames[1] = new Pyramid(rightWall_vertices);	
+		lefteye_wireFrames[1]->draw(pyrShaderProg);
+
+		//FLOOR WIREFRAME
+		wireframe_color = vec3(0, 1, 0);
+		glUniform3fv(uColor, 1, &(wireframe_color[0]));
+		std::vector<glm::vec3> floor_vertices = {
+			floorVerts[0], floorVerts[1], floorVerts[3], floorVerts[2]
+		};
+		floor_vertices.insert(floor_vertices.begin(), vec3(0, 0, 0));
+		lefteye_wireFrames[2] = new Pyramid(floor_vertices);
+		lefteye_wireFrames[2]->draw(pyrShaderProg);
+
 	}
 
 	void resizeBox(ovrSession session, bool &track, bool &B_down) {
@@ -1100,7 +1162,7 @@ public:
 			if (inputState.Buttons & ovrButton_B && !B_down) {
 				B_down = true;
 				track = !track;
-				printf("Tracking mode: ", track);
+				printf("Tracking mode:%d", track);
 			}
 			if (!(inputState.Buttons & ovrButton_B)) {
 				B_down = false;

@@ -20,13 +20,24 @@
 class Pyramid
 {
 public:
-	Pyramid(GLfloat pyr_vertices [18]);
+	Pyramid(std::vector<glm::vec3> vertices);
 	~Pyramid();
 
 	void draw(GLuint);
 
 	GLuint VBO, VAO, EBO;
-	GLfloat pyr_vertices [18];
+	//GLfloat pyr_vertices [54];
+
+	const GLuint pyr_indices[4][3] = {
+		// Face 1
+		{0, 1, 2},
+		//Face 2
+		{0, 2, 4},
+		// Face 3
+		{0, 3, 4},
+		// Face 4
+		{0, 1, 3},
+	};
 };
 
 
