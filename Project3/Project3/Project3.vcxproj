@@ -125,11 +125,14 @@
   <ItemGroup>
     <ClCompile Include="Box.cpp" />
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="Pyramid.cpp" />
     <ClCompile Include="Quad.cpp" />
     <ClCompile Include="shader.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
+    <None Include="pyrShader.frag" />
+    <None Include="pyrShader.vert" />
     <None Include="screenShader.frag" />
     <None Include="screenShader.vert" />
     <None Include="shader.frag" />
@@ -138,6 +141,7 @@
   <ItemGroup>
     <ClInclude Include="Box.h" />
     <ClInclude Include="main.h" />
+    <ClInclude Include="Pyramid.h" />
     <ClInclude Include="Quad.h" />
     <ClInclude Include="resource.h" />
     <ClInclude Include="shader.h" />

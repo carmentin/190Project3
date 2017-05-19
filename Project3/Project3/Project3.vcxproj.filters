@@ -27,6 +27,9 @@
     <ClCompile Include="Quad.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="Pyramid.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="shader.frag">
@@ -40,6 +43,12 @@
       <Filter>Source Files</Filter>
     </None>
     <None Include="screenShader.vert">
+      <Filter>Source Files</Filter>
+    </None>
+    <None Include="pyrShader.frag">
+      <Filter>Source Files</Filter>
+    </None>
+    <None Include="pyrShader.vert">
       <Filter>Source Files</Filter>
     </None>
   </ItemGroup>
@@ -57,6 +66,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Quad.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Pyramid.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
