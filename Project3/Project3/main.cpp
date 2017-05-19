@@ -567,23 +567,6 @@ protected:
 	void draw() final override {
 		ovrPosef eyePoses[2];
 		ovr_GetEyePoses(_session, frame, true, _viewScaleDesc.HmdToEyeOffset, eyePoses, &_sceneLayer.SensorSampleTime);
-		switch (trackingSelector) {
-		case 0:		// tracking
-			lastPoses[0] = eyePoses[0];
-			lastPoses[1] = eyePoses[1];
-			break;
-		case 2:		//Position only
-			lastPoses[0].Position = eyePoses[0].Position;
-			lastPoses[1].Position = eyePoses[1].Position;
-			break;
-		case 3:		//Orientation only
-			lastPoses[0].Orientation = eyePoses[0].Orientation;
-			lastPoses[1].Orientation = eyePoses[1].Orientation;
-			break;
-			//Else notracking
-		default:
-			break;
-		}
 		
 		int curIndex;
 		ovr_GetTextureSwapChainCurrentIndex(_session, _eyeTexture, &curIndex);
@@ -600,7 +583,7 @@ protected:
 			glViewport(vp.Pos.x, vp.Pos.y, vp.Size.w, vp.Size.h);
 			_sceneLayer.RenderPose[eye] = eyePoses[eye];
 
-			renderScene(_eyeProjections[eye], ovr::toGlm(lastPoses[eye]), eye, displaySelector, _fbo, _sceneLayer, windowSize);
+			renderScene(_eyeProjections[eye], ovr::toGlm(eyePoses[eye]), eye, displaySelector, _fbo, _sceneLayer, windowSize);
 			
 		});
 		glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, 0, 0);
@@ -620,56 +603,18 @@ protected:
 	void update() final override
 	{
 		ovrInputState inputState;
-		if (OVR_SUCCESS(ovr_GetInputState(_session, ovrControllerType_Touch, &inputState)))
-		{
-			
-			//On A press, change viewing mode			
-			if (inputState.Buttons & ovrButton_A && !A_down) {
-				A_down = true;
-				viewSelector = (viewSelector + 1)%4;	
-				printf("View mode: %d - %s\n", viewSelector, viewmodes[viewSelector]);
-			}
-			if (!(inputState.Buttons & ovrButton_A)) {
-				A_down = false;
-			}
-			
+		/*if (OVR_SUCCESS(ovr_GetInputState(_session, ovrControllerType_Touch, &inputState)))
+		{			
 			// On B press, change head tracking mode
 			if (inputState.Buttons & ovrButton_B && !B_down) {
 				B_down = true;
-				trackingSelector = (trackingSelector + 1)%4;	
-				printf("Tracking mode: %d - %s\n", trackingSelector, trackmodes[trackingSelector]);
+				trackingSelector = (trackingSelector + 1)%2;	
+				printf("Tracking mode: ", trackingSelector);
 			}
 			if (!(inputState.Buttons & ovrButton_B)) {
 				B_down = false;
 			}
-
-			// On X press, change head tracking mode
-			if (inputState.Buttons & ovrButton_X && !X_down) {
-				X_down = true;
-				displaySelector = (displaySelector + 1) % 3;
-				printf("Display mode: %d - %s\n", displaySelector, displaymodes[displaySelector]);
-			}
-			if (!(inputState.Buttons & ovrButton_X)) {
-				X_down = false;
-			}
-
-			// On right thumbstick movement, change IOD
-			if (inputState.Thumbstick[ovrHand_Right].x != 0) {
-				float tempL = _viewScaleDesc.HmdToEyeOffset[ovrEye_Left].x + (inputState.Thumbstick[ovrHand_Right].x * 0.01f);
-				float tempR = _viewScaleDesc.HmdToEyeOffset[ovrEye_Right].x - (inputState.Thumbstick[ovrHand_Right].x * 0.01f);
-				if (tempR - tempL >= 0 && tempR - tempL < 1.0f) {
-					_viewScaleDesc.HmdToEyeOffset[ovrEye_Left].x = tempL;
-					_viewScaleDesc.HmdToEyeOffset[ovrEye_Right].x = tempR;
-				}
-			}
-
-			// On right thumbstick press, reset IOD
-			if (inputState.Buttons & ovrButton_RThumb) {
-				_viewScaleDesc.HmdToEyeOffset[ovrEye_Left].x = originalIODL;
-				_viewScaleDesc.HmdToEyeOffset[ovrEye_Right].x = originalIODR;
-			}
-
-		}
+		}*/
 	}
 
 	virtual void renderScene(const glm::mat4 & projection, const glm::mat4 & headPose, ovrEyeType eye, int displayMode, GLuint hmd_fbo, ovrLayerEyeFov _sceneLayer, uvec2 windowSize) = 0;
@@ -804,6 +749,7 @@ struct ColorCubeScene {
 	int imgHeight;
 
 	Box * box;
+	glm::mat4 boxtransform;
 	float boxScale = 0.2f;
 	Box * skybox;
 
@@ -818,8 +764,13 @@ struct ColorCubeScene {
 	Quad * floor;
 	GLuint floorTextures[2];
 
+	mat4 quadProjections[3];
+	GLuint renderedTextures[6];
 	GLuint fbo;
 	GLuint renderedTexture;
+
+	bool B_down = false;
+	bool track = true;
 
 	// VBOs for the cube's vertices and normals
 	//const unsigned int GRID_SIZE{ 5 };
@@ -837,6 +788,8 @@ public:
 		z = new Box();
 
 		box = new Box();
+		boxtransform = glm::translate(boxtransform, glm::vec3(0.0f, 0.f, -1.f));
+		boxtransform = glm::scale(boxtransform, glm::vec3(boxScale));
 		skybox = new Box();
 		
 
@@ -919,11 +872,22 @@ public:
 
 		glBindTexture(GL_TEXTURE_2D, 0);
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+		for (int i = 0; i < 6; i++) {
+			glGenTextures(1, &renderedTextures[i]);
+			glBindTexture(GL_TEXTURE_2D, renderedTextures[i]);
+			glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, 1024, 1024, 0, GL_RGB, GL_UNSIGNED_BYTE, 0);
+
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+			glBindTexture(GL_TEXTURE_2D, 0);
+		}
 	}
 
 	void render(const mat4 & projection, const mat4 & modelview, ovrSession session, ovrEyeType eye, int displayMode, GLuint hmd_fbo, ovrLayerEyeFov _sceneLayer, uvec2 windowSize) {
-
-		//resizeBox(session);
+		resizeBox(session, track, B_down);
 
 		glUseProgram(shaderProg);
 
@@ -956,37 +920,125 @@ public:
 		glUniform3fv(uColor, 1, &(color[0]));
 		z->draw(shaderProg);*/
 
-		//MATHEMATICS
-		vec3 va = pa - eyePoses[eye];
+
+		//-----------------MATHEMATICS-----------------//
+		glm::mat4 leftTransform;
+		leftTransform = glm::rotate((float)glm::radians(45.f), glm::vec3(0, 1, 0));
+		leftTransform = glm::scale(leftTransform, vec3(1.2f));
+		leftTransform = glm::translate(leftTransform, vec3(-0.f, 0, -1));
+
+		glm::mat4 rightTransform;
+		rightTransform = glm::rotate((float)glm::radians(-45.f), glm::vec3(0, 1, 0));
+		rightTransform = glm::scale(rightTransform, vec3(1.2f));
+		rightTransform = glm::translate(rightTransform, vec3(0.f, 0, -1));
+
+		glm::mat4 floorTransform;
+		floorTransform = glm::rotate(glm::radians(-90.f), glm::vec3(1, 0, 0));
+		floorTransform = glm::rotate(floorTransform, glm::radians(45.f), glm::vec3(0, 0, 1));
+		floorTransform = glm::scale(floorTransform, glm::vec3(1.2f));
+		floorTransform = glm::translate(floorTransform, glm::vec3(0, 0, -1.f));
+
+		//LEFT WALL MATH
+		vec3 eyePos = vec3(ovr::toGlm(_sceneLayer.RenderPose[eye])[3]);
+		vec3 bottomLeft = leftTransform * vec4(leftwall->vertices[0], 1.0f);
+		vec3 bottomRight = leftTransform * vec4(leftwall->vertices[1], 1.0f);
+		vec3 topLeft = leftTransform * vec4(leftwall->vertices[3], 1.0f);
+		//vec3 leftva = bottomLeft - eyePos;
+		//vec3 leftvb = bottomRight - eyePos;
+		//vec3 leftvc = topLeft - eyePos;
 		
-		glEnable(GL_DEPTH_TEST);
+		vec3 vr = glm::normalize(bottomRight - bottomLeft);
+		vec3 vu = glm::normalize(topLeft - bottomLeft);
+		vec3 vn = glm::normalize(glm::cross(vr, vu));
+		//float leftDist = -glm::dot(leftNormal, leftva);
+		mat4 M = mat4(1.0f);
+		M[0] = vec4(vr, 0.f);
+		M[1] = vec4(vu, 0.f);
+		M[2] = vec4(vn, 0.f);
+		M = glm::transpose(M);
+		mat4 T = mat4(1.0f);
+		T[3] = vec4(-eyePos.x, -eyePos.y, -eyePos.z, 1.0f);
+		quadProjections[0] = projection * M * T;
 
-		glBindFramebuffer(GL_FRAMEBUFFER, fbo);
-		//glViewport(0, 0, windowSize.x, windowSize.y);
-		glViewport(0, 0, 1024, 1024);
-		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+		//RIGHT WALL MATH
+		bottomLeft = rightTransform * vec4(rightwall->vertices[0], 1.0f);
+		bottomRight = rightTransform * vec4(rightwall->vertices[1], 1.0f);
+		topLeft = rightTransform * vec4(rightwall->vertices[3], 1.0f);
+		//vec3 leftva = bottomLeft - eyePos;
+		//vec3 leftvb = bottomRight - eyePos;
+		//vec3 leftvc = topLeft - eyePos;
 
-		//Render cubes to walls
-		glm::mat4 boxtransform;
-		boxtransform = glm::translate(boxtransform, glm::vec3(0.0f, 0.f, -1.f));
-		boxtransform = glm::scale(boxtransform, glm::vec3(0.1f));
-		glUniformMatrix4fv(uTransform, 1, GL_FALSE, &(boxtransform[0][0]));
-		box->draw(shaderProg, texture_box);
+		vr = glm::normalize(bottomRight - bottomLeft);
+		vu = glm::normalize(topLeft - bottomLeft);
+		vn = glm::normalize(glm::cross(vr, vu));
+		//float leftDist = -glm::dot(vn, leftva);
+		M = mat4(1.0f);
+		M[0] = vec4(vr, 0.f);
+		M[1] = vec4(vu, 0.f);
+		M[2] = vec4(vn, 0.f);
+		M = glm::transpose(M);
+		T = mat4(1.0f);
+		T[3] = vec4(-eyePos.x, -eyePos.y, -eyePos.z, 1.0f);
+		quadProjections[1] = projection * M * T;
 
-		glDepthMask(GL_FALSE);
-		glm::mat4 skyboxTransform = glm::scale(glm::mat4(1.0f), glm::vec3(20.0f));
-		glUniformMatrix4fv(uTransform, 1, GL_FALSE, &(skyboxTransform[0][0]));
-		skybox->draw(shaderProg, texture_skybox[eye]);
+		//FLOOR WALL MATH
+		bottomLeft = floorTransform * vec4(floor->vertices[0], 1.0f);
+		bottomRight = floorTransform * vec4(floor->vertices[1], 1.0f);
+		topLeft = floorTransform * vec4(floor->vertices[3], 1.0f);
+		//vec3 leftva = bottomLeft - eyePos;
+		//vec3 leftvb = bottomRight - eyePos;
+		//vec3 leftvc = topLeft - eyePos;
 
-		glDepthMask(GL_TRUE);
+		vr = glm::normalize(bottomRight - bottomLeft);
+		vu = glm::normalize(topLeft - bottomLeft);
+		vn = glm::normalize(glm::cross(vr, vu));
+		//float leftDist = -glm::dot(vn, leftva);
+		M = mat4(1.0f);
+		M[0] = vec4(vr, 0.f);
+		M[1] = vec4(vu, 0.f);
+		M[2] = vec4(vn, 0.f);
+		M = glm::transpose(M);
+		T = mat4(1.0f);
+		T[3] = vec4(-eyePos.x, -eyePos.y, -eyePos.z, 1.0f);
+		quadProjections[2] = projection * M * T;
+		//---------------MATHEMATICS END---------------//
+		
 
-		glBindFramebuffer(GL_FRAMEBUFFER, 0);
-		//glViewport(0, 0, imgWidth, imgHeight);
-		const auto& vp = _sceneLayer.Viewport[eye];
-		glViewport(vp.Pos.x, vp.Pos.y, vp.Size.w, vp.Size.h);
-		glClear(GL_COLOR_BUFFER_BIT);
+		if (track) {
+			glEnable(GL_DEPTH_TEST);
 
-		glDisable(GL_DEPTH_TEST);
+			glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+			//glViewport(0, 0, windowSize.x, windowSize.y);
+			glViewport(0, 0, 1024, 1024);
+			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+			for (int i = 0; i < 3; i++) {
+
+
+				//Setup texture
+				glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, renderedTextures[eye * 3 + i], 0);
+				glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+				glUniformMatrix4fv(uProjection, 1, GL_FALSE, (&quadProjections[i][0][0]));
+				//Render cubes to walls
+
+				glUniformMatrix4fv(uTransform, 1, GL_FALSE, &(boxtransform[0][0]));
+				box->draw(shaderProg, texture_box);
+
+				glDepthMask(GL_FALSE);
+				glm::mat4 skyboxTransform = glm::scale(glm::mat4(1.0f), glm::vec3(20.0f));
+				glUniformMatrix4fv(uTransform, 1, GL_FALSE, &(skyboxTransform[0][0]));
+				skybox->draw(shaderProg, texture_skybox[eye]);
+				glDepthMask(GL_TRUE);
+			}
+
+			glBindFramebuffer(GL_FRAMEBUFFER, 0);
+			//glViewport(0, 0, imgWidth, imgHeight);
+			const auto& vp = _sceneLayer.Viewport[eye];
+			glViewport(vp.Pos.x, vp.Pos.y, vp.Size.w, vp.Size.h);
+			glClear(GL_COLOR_BUFFER_BIT);
+
+			glDisable(GL_DEPTH_TEST);
+		}
 
 		//DRAW THE CAVE!!!!!~~~***///:^))))))
 		glBindFramebuffer(GL_FRAMEBUFFER, hmd_fbo);
@@ -1001,39 +1053,26 @@ public:
 		glUniformMatrix4fv(uModelview, 1, GL_FALSE, &(modelview[0][0]));
 
 		//left wall
-		glm::mat4 leftTransform;
 		const glm::vec3 leftColor(0, 0.7f, 0);
-		leftTransform = glm::rotate((float)glm::radians(45.f), glm::vec3(0, 1, 0));
-		leftTransform = glm::scale(leftTransform, vec3(1.2f));
-		leftTransform = glm::translate(leftTransform, vec3(-0.f, 0, -1));
 		glUniformMatrix4fv(uTransform, 1, GL_FALSE, &(leftTransform[0][0]));
 		glUniform3fv(uColor, 1, &(leftColor[0]));
-		leftwall->draw(screenShaderProg, renderedTexture);//leftTextures[eye]);
+		leftwall->draw(screenShaderProg, renderedTextures[eye * 3]);//leftTextures[eye]);
 
 		//right wall
-		glm::mat4 rightTransform;
 		const glm::vec3 rightColor(0, 0, 0.7f);
-		rightTransform = glm::rotate((float)glm::radians(-45.f), glm::vec3(0, 1, 0));
-		rightTransform = glm::scale(rightTransform, vec3(1.2f));
-		rightTransform = glm::translate(rightTransform, vec3(0.f, 0, -1));
 		glUniformMatrix4fv(uTransform, 1, GL_FALSE, &(rightTransform[0][0]));
 		glUniform3fv(uColor, 1, &(rightColor[0]));
-		rightwall->draw(screenShaderProg, renderedTexture);//rightTextures[eye]);
+		rightwall->draw(screenShaderProg, renderedTextures[eye * 3 + 1]);//rightTextures[eye]);
 
 		//floor
-		glm::mat4 floorTransform;
 		const glm::vec3 floorColor(0.7f, 0, 0);
-		floorTransform = glm::rotate(glm::radians(-90.f), glm::vec3(1, 0, 0));
-		floorTransform = glm::rotate(floorTransform, glm::radians(45.f), glm::vec3(0, 0, 1));
-		floorTransform = glm::scale(floorTransform, glm::vec3(1.2f));
-		floorTransform = glm::translate(floorTransform, glm::vec3(0, 0, -1.f));
 		glUniformMatrix4fv(uTransform, 1, GL_FALSE, &(floorTransform[0][0]));
 		glUniform3fv(uColor, 1, &(floorColor[0]));
-		floor->draw(screenShaderProg, renderedTexture);//floorTextures[eye]);
+		floor->draw(screenShaderProg, renderedTextures[eye * 3 + 2]);//floorTextures[eye]);
 		
 	}
 
-	void resizeBox(ovrSession session) {
+	void resizeBox(ovrSession session, bool &track, bool &B_down) {
 		ovrInputState inputState;
 		if (OVR_SUCCESS(ovr_GetInputState(session, ovrControllerType_Touch, &inputState)))
 		{
@@ -1041,12 +1080,30 @@ public:
 			if (inputState.Thumbstick[ovrHand_Left].x != 0) {
 				float temp = boxScale + (inputState.Thumbstick[ovrHand_Left].x * 0.01f);
 				if (temp > 0.01f && temp < 1.0f)
+					printf("Hello");
 					boxScale += (inputState.Thumbstick[ovrHand_Left].x * 0.01f);
 			}
 
 			// On left thumbstick press, reset box size
 			if (inputState.Buttons & ovrButton_LThumb) {
 				boxScale = 0.2f;
+			}
+
+			// On right thumbstick movement or left thumbstick vertical movement, translate box
+			if (inputState.Thumbstick[ovrHand_Right].x != 0 || inputState.Thumbstick[ovrHand_Right].y != 0 
+					|| inputState.Thumbstick[ovrHand_Left].y != 0) {
+				boxtransform = glm::translate(boxtransform, vec3(inputState.Thumbstick[ovrHand_Right].x * 0.01f, 
+					inputState.Thumbstick[ovrHand_Right].y * 0.01f, inputState.Thumbstick[ovrHand_Left].y * 0.01f));
+			}
+
+			// On B press, change head tracking mode
+			if (inputState.Buttons & ovrButton_B && !B_down) {
+				B_down = true;
+				track = !track;
+				printf("Tracking mode: ", track);
+			}
+			if (!(inputState.Buttons & ovrButton_B)) {
+				B_down = false;
 			}
 		}
 	}

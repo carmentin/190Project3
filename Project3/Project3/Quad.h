@@ -28,6 +28,8 @@ public:
 	GLuint loadQuadTexture(unsigned char* data, int width, int height);
 
 	GLuint VBO, VAO, EBO;
+
+	glm::vec3 vertices[4] = { glm::vec3(-1.f, -1.f, 0.f), glm::vec3(1.f, -1.f, 0.f), glm::vec3(1.f, 1.f, 0.f), glm::vec3(-1.f, 1.f, 0.f) };
 };
 
 const GLfloat quad_vertices[] = {
